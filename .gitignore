@@ -1,0 +1,16 @@
+data/pdfs
+data/pdfs-to-summarize
+data/audio_files
+data/txt-summaries
+data/csv
+!data/txt-summaries/.gitkeep
+!data/csv/.gitkeep
+!data/pdfs/.gitkeep
+!data/pdfs-to-summarize/.gitkeep
+!data/audio_files/.gitkeep
+venv/
+config/
+!config/.gitkeep
+scripts/__pycache__
+utils/__pycache__
+__pycache__
