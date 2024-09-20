@@ -6,8 +6,11 @@ from time import sleep
 from configparser import ConfigParser
 import time
 
-def summarize_papers(input_folder: str, output_folder: str, config: ConfigParser) -> None:
+def summarize_papers(config: ConfigParser) -> None:
     """Process PDF files, generate summaries, and save them to output folder and optionally Obsidian."""
+    input_folder = config.get('summarize_papers', 'input_folder')
+    output_folder = config.get('summarize_papers', 'output_folder')
+    
     print("Starting summarization process...")
     print(config)
 

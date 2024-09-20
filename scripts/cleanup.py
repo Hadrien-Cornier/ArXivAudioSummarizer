@@ -4,8 +4,6 @@ import glob
 import csv
 from utils.utils import make_folder_if_none, delete_all_files_in_folder, get_link
 
-make_folder_if_none("pdfs-to-summarize")
-
 def update_papers_kept_csv(base_filename: str) -> None:
     """Update the papers_kept.csv file with information from papers_downloaded.csv."""
     downloaded_csv, kept_csv = "papers_downloaded.csv", "papers_kept.csv"
@@ -60,11 +58,12 @@ def cleanup_files() -> None:
         except Exception as e:
             print(f"Couldn't delete {file} due to error: {e}")
 
-def cleanup_and_send_to_obsidian(config):
+def cleanup_and_send_to_obsidian(config: ConfigParser):
     send_to_obsidian = config.getboolean('Obsidian', 'send_to_obsidian')
     if send_to_obsidian:
         obsidian_vault_location = config.get('Obsidian', 'vault_location')
         obsidian_vault_attachments_location = config.get('Obsidian', 'vault_attachments_location')
-        process_files('pdfs-to-summarize', obsidian_vault_location, obsidian_vault_attachments_location)
+        pdf_folder = config.get('cleanup', 'pdf_folder')
+        process_files(pdf_folder, obsidian_vault_location, obsidian_vault_attachments_location)
 
-    cleanup_files(config)
+    cleanup_files()

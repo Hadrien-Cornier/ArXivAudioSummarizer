@@ -10,9 +10,10 @@ def compute_relevance_score(title: str, abstract: str, include_terms: List[str])
     """Compute relevance score based on term occurrences in title and abstract."""
     return sum(2 if term.lower() in title.lower() else 1 if term.lower() in abstract.lower() else 0 for term in include_terms)
 
-def search_papers(output_dir: str, config: configparser.ConfigParser) -> None:
+def search_papers(config: configparser.ConfigParser) -> None:
     """Search for papers on arXiv based on given configuration."""
     arxiv_config = config['arxiv_search']
+    output_dir = arxiv_config.get('output_dir')
     
     restrict_to_most_recent: bool = arxiv_config.getboolean('restrict_to_most_recent')
     max_results: int = arxiv_config.getint('max_results')

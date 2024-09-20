@@ -7,8 +7,11 @@ import configparser
 from typing import List
 from utils.utils import open_file, cut_off_string, resolve_config
 
-def generate_podcast(newsletter_text_location: str, audio_files_path: str, config: configparser.ConfigParser) -> None:
+def generate_podcast(config: configparser.ConfigParser) -> None:
     """Generate a podcast from newsletter text content."""
+    newsletter_text_location = config.get('podcast', 'newsletter_text_location')
+    audio_files_path = config.get('podcast', 'audio_files_directory_path')
+    
     newsletter_content: str = open_file(newsletter_text_location).strip()
     audio_files_path: Path = Path(audio_files_path)
     audio_files_path.mkdir(exist_ok=True)
@@ -67,8 +70,4 @@ def cleanup_segment_files(segment_files: List[Path]) -> None:
 
 if __name__ == '__main__':
     config: configparser.ConfigParser = resolve_config()
-    
-    newsletter_text_location: str = config['podcast']['newsletter_text_location']
-    audio_files_path: str = config['podcast']['audio_files_directory_path']
-    
-    generate_podcast(newsletter_text_location, audio_files_path, config)
+    generate_podcast(config)

@@ -4,9 +4,12 @@ import requests
 from configparser import ConfigParser
 from utils.utils import read_papers_from_csv
 
-def select_top_papers(input_file: str, output_dir: str, config: ConfigParser) -> None:
+def select_top_papers(config: ConfigParser) -> None:
     """Select top papers, download PDFs, and save info to CSV."""
+    input_file = config.get('select_papers', 'input_file')
+    output_dir = config.get('select_papers', 'output_dir')
     number_of_papers = config.getint('select_papers', 'number_of_papers_to_summarize')
+    
     papers = read_papers_from_csv(input_file)
     top_papers = sorted(papers, key=lambda x: int(x['Score']), reverse=True)[:number_of_papers]
     
