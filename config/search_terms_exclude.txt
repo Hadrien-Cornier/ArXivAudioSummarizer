@@ -1,0 +1,34 @@
+prostate
+surgical
+gender
+ethnic
+quadrotor
+racist
+racial
+indigenous
+vehicle
+drone
+quadruped
+drought
+hurricane
+flood
+tornado
+glycemic
+eeg
+ultrasound
+indonesian
+fake news
+parkinson
+cancer
+stroke
+IoT
+antibody
+pelvic
+hand
+grasp
+peptide
+amino acid
+medical
+medicine
+medicinal
+quantum

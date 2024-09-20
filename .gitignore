@@ -9,8 +9,7 @@ data/csv
 !data/pdfs-to-summarize/.gitkeep
 !data/audio_files/.gitkeep
 venv/
-config/
-!config/.gitkeep
+config/key_openai.txt
 scripts/__pycache__
 utils/__pycache__
 __pycache__
