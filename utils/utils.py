@@ -99,3 +99,7 @@ def cut_off_string(input_string: str, cutoff_string: str) -> Tuple[str, str]:
         return input_string[:cutoff_index + len(cutoff_string)], input_string[cutoff_index + len(cutoff_string):]
     else:
         return input_string, ''
+
+def compute_relevance_score(title: str, abstract: str, include_terms: List[str]) -> int:
+    """Compute relevance score based on term occurrences in title and abstract."""
+    return sum(2 if term.lower() in title.lower() else 1 if term.lower() in abstract.lower() else 0 for term in include_terms)
