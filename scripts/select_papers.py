@@ -4,10 +4,32 @@ import requests
 from configparser import ConfigParser
 from utils.utils import read_papers_from_csv, read_lines_from_file
 from datetime import datetime
-from typing import List
-import openai
+from typing import Any, List, Callable
+from openai import OpenAI
 import numpy as np
 import json
+import time
+from functools import wraps
+
+def retry_with_exponential_backoff(
+    func: Callable[..., Any],
+    max_retries: int = 5,
+    initial_wait: float = 1,
+    exponential_base: float = 2,
+) -> Callable[..., Any]:
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        wait_time = initial_wait
+        for attempt in range(max_retries):
+            try:
+                return func(*args, **kwargs)
+            except Exception as e:
+                if attempt == max_retries - 1:
+                    raise
+                print(f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}. Retrying in {wait_time:.2f} seconds...")
+                time.sleep(wait_time)
+                wait_time *= exponential_base
+    return wrapper
 
 def load_embedding_cache(cache_file):
     if os.path.exists(cache_file):
@@ -19,19 +41,22 @@ def save_embedding_cache(cache, cache_file):
     with open(cache_file, 'w') as f:
         json.dump(cache, f)
 
-def get_embedding(text, model="text-embedding-ada-002", cache=None):
+@retry_with_exponential_backoff
+def get_embedding(text, client, model="text-embedding-ada-002", cache=None):
     if cache is not None and text in cache:
         return cache[text]
     
-    embedding = openai.Embedding.create(input=text, model=model)['data'][0]['embedding']
+    response = client.embeddings.create(input=text, model=model)
+    embedding = response.data[0].embedding
     
     if cache is not None:
         cache[text] = embedding
         
     return embedding
 
+@retry_with_exponential_backoff
 def compute_relevance_score(title: str, abstract: str, include_terms: List[str], exclude_terms: List[str], config: ConfigParser) -> float:
-    openai.api_key = open(config.get('openai', 'api_key_location')).read().strip()
+    client = OpenAI(api_key=open(config.get('openai', 'api_key_location')).read().strip())
     
     # Load embedding caches
     include_cache_file = os.path.join('data', 'include_embedding_cache.json')
@@ -43,9 +68,9 @@ def compute_relevance_score(title: str, abstract: str, include_terms: List[str],
     paper_text = f"{title}\n{abstract}"
     
     # Get embeddings for paper, include terms, and exclude terms
-    paper_embedding = get_embedding(paper_text)
-    include_embeddings = [get_embedding(term, cache=include_cache) for term in include_terms]
-    exclude_embeddings = [get_embedding(term, cache=exclude_cache) for term in exclude_terms]
+    paper_embedding = get_embedding(paper_text, client)
+    include_embeddings = [get_embedding(term, client, cache=include_cache) for term in include_terms]
+    exclude_embeddings = [get_embedding(term, client, cache=exclude_cache) for term in exclude_terms]
     
     # Save updated caches
     save_embedding_cache(include_cache, include_cache_file)

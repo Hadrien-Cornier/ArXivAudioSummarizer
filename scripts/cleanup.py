@@ -5,23 +5,6 @@ import glob
 import csv
 from utils.utils import delete_all_files_in_folder, get_link
 
-def update_papers_kept_csv(base_filename: str) -> None:
-    downloaded_csv, kept_csv = "papers_downloaded.csv", "papers_kept.csv"
-    
-    if not os.path.isfile(kept_csv):
-        with open(kept_csv, 'w', newline='') as file:
-            csv.writer(file).writerow(["Title", "ArXiv Link", "Paper Date", "Date Added"])
-
-    with open(downloaded_csv, 'r', newline='') as file:
-        row_to_add = next((row for row in csv.reader(file) if row and row[0] == base_filename), None)
-    
-    if row_to_add:
-        with open(kept_csv, 'a', newline='') as file:
-            csv.writer(file).writerow(row_to_add)
-        print(f"Added to {kept_csv}: {base_filename}")
-    else:
-        print(f"Error: Could not find {base_filename} in {downloaded_csv}")
-
 def process_files(pdf_folder: str, md_final_folder: str, pdf_final_folder: str, csv_path: str) -> None:
     count = 0
     for pdf_file in glob.glob(os.path.join(pdf_folder, '*.pdf')):
@@ -41,19 +24,25 @@ def process_files(pdf_folder: str, md_final_folder: str, pdf_final_folder: str, 
             except shutil.Error as e:
                 print(f"Error: {e}. Skipping file {src} because it already exists in the destination.")
 
-        update_papers_kept_csv(base_filename)
-
     print(f'{count} files added to vault assuming no skip errors')
 
-def cleanup_files(folders_to_clean: list, files_to_remove: list) -> None:
+def cleanup_files(folders_to_clean: list, files_to_remove: list, files_to_preserve: list) -> None:
     for folder in folders_to_clean:
-        delete_all_files_in_folder(folder)
+        files_in_folder = os.listdir(folder)
+        for file in files_in_folder:
+            file_path = os.path.join(folder, file)
+            if file not in files_to_preserve:
+                if os.path.isfile(file_path):
+                    os.remove(file_path)
+                elif os.path.isdir(file_path):
+                    shutil.rmtree(file_path)
 
     for file in files_to_remove:
-        try:
-            os.remove(file)
-        except Exception as e:
-            print(f"Couldn't delete {file} due to error: {e}")
+        if file not in files_to_preserve:
+            try:
+                os.remove(file)
+            except Exception as e:
+                print(f"Couldn't delete {file} due to error: {e}")
 
 def cleanup_and_send_to_obsidian(config: ConfigParser):
     if config.getboolean('Obsidian', 'send_to_obsidian'):
@@ -64,8 +53,11 @@ def cleanup_and_send_to_obsidian(config: ConfigParser):
             config.get('summarize_papers', 'csv_path', fallback='data/pdfs-to-summarize/papers_to_summarize.csv')
         )
 
+    files_to_preserve = ['papers_to_summarize.csv']
+    
     cleanup_files(
         [config.get('select_papers', 'output_dir'), config.get('arxiv_search', 'output_dir')],
         ['links.txt', 'timestamps.txt', 'trimmed_timestamps.txt', 
-         'timestamps_adjusted.txt', 'newsletter.txt', 'newsletter_podcast.mp3']
+         'timestamps_adjusted.txt', 'newsletter.txt', 'newsletter_podcast.mp3'],
+        files_to_preserve
     )

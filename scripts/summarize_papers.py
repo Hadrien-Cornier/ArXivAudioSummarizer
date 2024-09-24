@@ -36,7 +36,10 @@ def summarize_papers(config: ConfigParser) -> None:
             summary_file.write(summaries)
 
         if config.getboolean('Obsidian', 'send_to_obsidian', fallback=False):
-            write_to_obsidian(base_filename, paper, summaries, config)
+            try:
+                write_to_obsidian(base_filename, paper, summaries, config)
+            except Exception as e:
+                print(f"Error writing to Obsidian: {e}")
 
         print(f"Processed in {time.time() - start_time:.2f} seconds")
         print_progress_bar(i, len(pdf_files))
@@ -74,9 +77,28 @@ def generate_summary(paper: str, config: ConfigParser) -> str:
 def write_to_obsidian(base_filename: str, paper: Optional[str], summaries: str, config: ConfigParser) -> None:
     tags: List[str] = determine_tags(paper or "", config)
     obsidian_content: str = f"---\ntags: {', '.join(tags)}\n---\n\n{summaries}"
-    obsidian_filename: str = os.path.join(config.get('Obsidian', 'vault_location'), f"{base_filename}.md")
-    with open(obsidian_filename, 'w', encoding='utf-8') as f:
-        f.write(obsidian_content)
+    
+    # Use the vault_attachments_location for writing the Markdown file
+    obsidian_attachments_location: str = config.get('Obsidian', 'vault_attachments_location')
+    
+    # Instead of creating the directory, just ensure it exists
+    if not os.path.exists(obsidian_attachments_location):
+        print(f"Warning: Attachments directory does not exist: {obsidian_attachments_location}")
+        return
+    
+    obsidian_filename: str = os.path.join(obsidian_attachments_location, f"{base_filename}.md")
+    
+    # Check if the file already exists
+    if os.path.exists(obsidian_filename):
+        print(f"Warning: File already exists: {obsidian_filename}")
+        return
+    
+    try:
+        with open(obsidian_filename, 'w', encoding='utf-8') as f:
+            f.write(obsidian_content)
+        print(f"Wrote Obsidian file: {obsidian_filename}")
+    except IOError as e:
+        print(f"Error writing file {obsidian_filename}: {e}")
 
 def print_progress_bar(current: int, total: int, bar_length: int = 20) -> None:
     progress: float = current / total

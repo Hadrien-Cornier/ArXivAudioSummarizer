@@ -1,6 +1,7 @@
 import sys
 from scripts import arxiv_search, select_papers, summarize_papers, podcast, cleanup
 from utils.utils import resolve_config
+import os
 
 def main():
     config = resolve_config()
@@ -18,6 +19,13 @@ def main():
         print(f"Executing step: {step}")
         if step in step_functions:
             step_functions[step](config=config)
+            
+            # Check if papers were found after arxiv_search
+            if step == 'arxiv_search':
+                papers_found_csv = os.path.join(config.get('arxiv_search', 'output_dir'), 'papers_found.csv')
+                if not os.path.exists(papers_found_csv) or os.path.getsize(papers_found_csv) == 0:
+                    print("No new papers found. Stopping pipeline.")
+                    break
         else:
             print(f"Warning: Unknown pipeline step '{step}'")
     
