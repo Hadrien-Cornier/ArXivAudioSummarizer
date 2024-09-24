@@ -46,7 +46,7 @@ def summarize_papers(config: ConfigParser) -> None:
         outfile.write(summaries)
 
 def chatbot(conversation: List[Dict[str, str]], config: ConfigParser, model: str = "gpt-4o-mini", temperature: float = 0.7) -> str:
-    client: OpenAI = OpenAI(api_key=open_file(config.get('summarize_papers', 'openai_api_key_location')))
+    client: OpenAI = OpenAI(api_key=open(config.get('openai', 'api_key_location')).read().strip())
     for _ in range(3):
         try:
             stream = client.chat.completions.create(
