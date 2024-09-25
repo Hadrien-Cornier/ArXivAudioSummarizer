@@ -3,46 +3,28 @@ import os
 import requests
 from configparser import ConfigParser
 from utils.utils import read_papers_from_csv, read_lines_from_file
+from utils.retry import retry_with_exponential_backoff
 from datetime import datetime
-from typing import Any, List, Callable
+from typing import Any, List, Dict
 from openai import OpenAI
 import numpy as np
 import json
 import time
-from functools import wraps
+from chromadb import Client
+from chromadb.config import Settings
 
-def retry_with_exponential_backoff(
-    func: Callable[..., Any],
-    max_retries: int = 5,
-    initial_wait: float = 1,
-    exponential_base: float = 2,
-) -> Callable[..., Any]:
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        wait_time = initial_wait
-        for attempt in range(max_retries):
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                if attempt == max_retries - 1:
-                    raise
-                print(f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}. Retrying in {wait_time:.2f} seconds...")
-                time.sleep(wait_time)
-                wait_time *= exponential_base
-    return wrapper
-
-def load_embedding_cache(cache_file):
+def load_embedding_cache(cache_file: str) -> Dict[str, Any]:
     if os.path.exists(cache_file):
         with open(cache_file, 'r') as f:
             return json.load(f)
     return {}
 
-def save_embedding_cache(cache, cache_file):
+def save_embedding_cache(cache: Dict[str, Any], cache_file: str) -> None:
     with open(cache_file, 'w') as f:
         json.dump(cache, f)
 
 @retry_with_exponential_backoff
-def get_embedding(text, client, model="text-embedding-ada-002", cache=None):
+def get_embedding(text: str, client: OpenAI, model: str = "text-embedding-ada-002", cache: Dict[str, Any] = None) -> List[float]:
     if cache is not None and text in cache:
         return cache[text]
     
@@ -86,14 +68,31 @@ def compute_relevance_score(title: str, abstract: str, include_terms: List[str],
     return score
 
 def select_top_papers(config: ConfigParser) -> None:
-    papers = read_papers_from_csv(config.get('select_papers', 'input_file'))
-    include_terms = read_lines_from_file(config.get('arxiv_search', 'include_terms_file', fallback='config/search_terms_include.txt'))
-    exclude_terms = read_lines_from_file(config.get('arxiv_search', 'exclude_terms_file', fallback='config/search_terms_exclude.txt'))
-    
-    for paper in papers:
-        paper['Score'] = compute_relevance_score(paper['Title'], paper['Abstract'], include_terms, exclude_terms, config)
-    
-    top_papers = sorted(papers, key=lambda x: float(x['Score']), reverse=True)[:config.getint('select_papers', 'number_of_papers_to_summarize')]
+    chroma_client = Client(Settings(persist_directory=config.get('arxiv_search', 'chroma_persist_dir')))
+    chroma_collection = chroma_client.get_collection(name="papers")
+
+    queries = config.get('select_papers', 'queries').split(',')
+    query_results: List[Dict[str, Any]] = []
+
+    for query_name in queries:
+        query_name = query_name.strip()  # Remove any leading/trailing whitespace
+        query_terms = config.get('select_papers', query_name).split(',')
+        
+        # Get embeddings for query terms
+        openai_client = OpenAI(api_key=open(config.get('openai', 'api_key_location')).read().strip())
+        query_embeddings = [get_embedding(term.strip(), openai_client) for term in query_terms]
+        
+        # Query Chroma with BM25 and vector search combined
+        results = chroma_collection.query(
+            query_embeddings=query_embeddings,
+            n_results=config.getint('select_papers', 'number_of_papers_to_summarize'),
+            bm25_terms=[term.strip() for term in query_terms]
+        )
+        
+        query_results.extend(results)
+
+    # Sort results by combined BM25 and vector score
+    top_papers = sorted(query_results, key=lambda x: x['score'], reverse=True)[:config.getint('select_papers', 'number_of_papers_to_summarize')]
     
     output_dir = config.get('select_papers', 'output_dir')
     os.makedirs(output_dir, exist_ok=True)
@@ -103,11 +102,11 @@ def select_top_papers(config: ConfigParser) -> None:
         writer.writerow(["ID", "Title", "ArXiv URL", "PDF URL", "Published Date", "Abstract", "Score", "Filename"])
         
         for paper in top_papers:
-            published_date = datetime.strptime(paper['Published Date'], '%Y-%m-%d').date()
-            filename = f"{published_date}-{paper['Title'].replace(' ', '_').replace(':', '').replace(',', '')[:50]}"
+            published_date = datetime.strptime(paper['published_date'], '%Y-%m-%d').date()
+            filename = f"{published_date}-{paper['title'].replace(' ', '_').replace(':', '').replace(',', '')[:50]}"
             
             with open(os.path.join(output_dir, f"{filename}.pdf"), "wb") as f:
-                f.write(requests.get(paper['PDF URL']).content)
+                f.write(requests.get(paper['pdf_url']).content)
             
             writer.writerow(list(paper.values()) + [filename])
             print(f"Downloaded {filename}.pdf")

@@ -5,6 +5,14 @@ import csv
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
 from utils.utils import read_lines_from_file
+from utils.retry import retry_with_exponential_backoff
+from chromadb import Client
+from chromadb.config import Settings
+from openai import OpenAI
+
+@retry_with_exponential_backoff
+def fetch_arxiv_results(search: arxiv.Search, client: arxiv.Client) -> List[arxiv.Result]:
+    return list(client.results(search))
 
 def search_papers(config: configparser.ConfigParser) -> None:
     arxiv_config: Dict[str, Any] = config['arxiv_search']
@@ -28,21 +36,45 @@ def search_papers(config: configparser.ConfigParser) -> None:
     papers: List[Dict[str, Any]] = []
     most_recent_date = start_date
 
-    for result in client.results(search):
+    # Initialize Chroma client
+    chroma_client = Client(Settings(persist_directory=arxiv_config.get('chroma_persist_dir')))
+    chroma_collection = chroma_client.get_or_create_collection(name="papers")
+
+    openai_client = OpenAI(api_key=open(config.get('openai', 'api_key_location')).read().strip())
+
+    try:
+        results = fetch_arxiv_results(search, client)
+    except Exception as e:
+        print(f"Failed to fetch results from arXiv: {e}")
+        return
+
+    for result in results:
         if result.published.date() <= start_date.date():
             break
         
-        papers.append({
+        paper = {
             "id": result.get_short_id(),
             "title": result.title,
             "arxiv_url": result.entry_id,
             "pdf_url": result.pdf_url,
             "published_date": result.published.date(),
             "abstract": result.summary
-        })
+        }
+        papers.append(paper)
         
         if result.published.date() > most_recent_date.date():
             most_recent_date = result.published
+
+        # Get embedding for the paper
+        paper_text = f"{paper['title']}\n{paper['abstract']}"
+        embedding = openai_client.embeddings.create(input=paper_text, model=arxiv_config.get('embedding_model')).data[0].embedding
+
+        # Add paper to Chroma
+        chroma_collection.add(
+            ids=[paper['id']],
+            embeddings=[embedding],
+            metadatas=[paper]
+        )
 
     if papers:
         with open(os.path.join(output_dir, 'papers_found.csv'), mode='w', newline='', encoding='utf-8') as file:
