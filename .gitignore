@@ -1,5 +1,6 @@
 data
 !**/.gitkeep
+!**/most_recent_day_searched.txt
 venv/
 config/key_openai.txt
 **/__pycache__

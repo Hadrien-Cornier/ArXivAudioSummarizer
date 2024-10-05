@@ -2,6 +2,7 @@ import time
 from functools import wraps
 from typing import Callable, Any
 
+
 def retry_with_exponential_backoff(
     func: Callable[..., Any],
     max_retries: int = 5,
@@ -17,7 +18,10 @@ def retry_with_exponential_backoff(
             except Exception as e:
                 if attempt == max_retries - 1:
                     raise
-                print(f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}. Retrying in {wait_time:.2f} seconds...")
+                print(
+                    f"Attempt {attempt + 1}/{max_retries} failed: {str(e)}. Retrying in {wait_time:.2f} seconds..."
+                )
                 time.sleep(wait_time)
                 wait_time *= exponential_base
+
     return wrapper
