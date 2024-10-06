@@ -6,3 +6,4 @@ config/key_openai.txt
 **/__pycache__
 marker/
 docker-compose/.env
+.vscode
