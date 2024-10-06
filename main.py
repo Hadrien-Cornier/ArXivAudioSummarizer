@@ -1,5 +1,11 @@
 import sys
-from scripts import arxiv_search, select_papers, summarize_papers, podcast, cleanup
+from scripts import (
+    arxiv_search,
+    select_papers,
+    summarize_papers,
+    podcast,
+    cleanup,
+)  # , benchmark_pdf_extraction
 from utils.utils import resolve_config
 import os
 
@@ -16,6 +22,7 @@ def main():
         "summarize_papers": summarize_papers.summarize_papers,
         "podcast": podcast.generate_podcast,
         "cleanup": cleanup.cleanup_and_send_to_obsidian,
+        # "benchmark": benchmark_pdf_extraction.main,  # Add this line
     }
 
     for step in pipeline_steps:

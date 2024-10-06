@@ -1,18 +1,12 @@
-# import sys
-# import os
-# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
 import configparser
 import arxiv
 import os
 import csv
 from datetime import datetime, timedelta
 from typing import List, Dict, Any
-from utils.utils import read_lines_from_file
 from utils.retry import retry_with_exponential_backoff
-from chromadb import Client
-from chromadb.config import Settings
 from openai import OpenAI
+from utils.weaviate_client import get_or_create_class, get_weaviate_client
 
 
 @retry_with_exponential_backoff
@@ -24,21 +18,28 @@ def fetch_arxiv_results(
 
 def search_papers(config: configparser.ConfigParser) -> None:
     arxiv_config: Dict[str, Any] = config["arxiv_search"]
+    weaviate_config: Dict[str, Any] = config["weaviate"]
     output_dir: str = arxiv_config.get("output_dir")
     os.makedirs(output_dir, exist_ok=True)
 
-    checkpoint_file: str = os.path.join(output_dir, "most_recent_day_searched.txt")
+    checkpoint_file: str = os.path.join(
+        os.path.dirname(output_dir), "most_recent_day_searched.txt"
+    )
 
     if os.path.exists(checkpoint_file):
         with open(checkpoint_file, "r") as f:
-            start_date = datetime.strptime(f.read().strip(), "%Y-%m-%d")
+            most_recent_day_searched = datetime.strptime(f.read().strip(), "%Y-%m-%d")
     else:
-        start_date = datetime.now()
+        most_recent_day_searched = datetime.now() - timedelta(
+            days=arxiv_config.getint("date_range")
+        )
 
-    begin_date = start_date - timedelta(days=arxiv_config.getint("date_range"))
+    date_range = arxiv_config.getint("date_range")
     end_date = datetime.now().date()
+    start_date = (most_recent_day_searched - timedelta(days=date_range)).date()
+
     query: str = (
-        f"({arxiv_config.get('categories')}) AND submittedDate:[{start_date:%Y%m%d}000000 TO {datetime.now():%Y%m%d}235959]"
+        f"({arxiv_config.get('categories')}) AND submittedDate:[{start_date:%Y%m%d}000000 TO {end_date:%Y%m%d}235959]"
     )
 
     client: arxiv.Client = arxiv.Client(
@@ -52,17 +53,6 @@ def search_papers(config: configparser.ConfigParser) -> None:
     )
 
     papers: List[Dict[str, Any]] = []
-    most_recent_date = start_date
-
-    # Initialize Chroma client
-    chroma_client = Client(
-        Settings(persist_directory=arxiv_config.get("chroma_persist_dir"))
-    )
-    chroma_collection = chroma_client.get_or_create_collection(name="papers")
-
-    openai_client = OpenAI(
-        api_key=open(config.get("openai", "api_key_location")).read().strip()
-    )
 
     try:
         results = fetch_arxiv_results(search, client)
@@ -71,42 +61,46 @@ def search_papers(config: configparser.ConfigParser) -> None:
         return
 
     for result in results:
-        if result.published.date() <= start_date.date():
+        if start_date <= result.published.date() <= end_date:
+            paper = {
+                "paper_id": result.get_short_id(),
+                "title": result.title,
+                "arxiv_url": result.entry_id,
+                "pdf_url": result.pdf_url,
+                "published_date": str(result.published.date()),
+                "abstract": result.summary,
+                "full_text": "",
+            }
+            papers.append(paper)
+        else:
             print(
                 f"Skipping result published on {result.published.date()} as it falls outside the selected date range."
             )
-            begin_date = start_date - timedelta(days=arxiv_config.getint("date_range"))
-            end_date = datetime.now().date()
-            print(f"Date range: {begin_date.date()} to {end_date}")
-            continue
+            print(f"Date range: {start_date} to {end_date}")
 
-        paper = {
-            "id": result.get_short_id(),
-            "title": result.title,
-            "arxiv_url": result.entry_id,
-            "pdf_url": result.pdf_url,
-            "published_date": str(result.published.date()),
-            "abstract": result.summary,
-        }
-        papers.append(paper)
+        if result.published.date() > most_recent_day_searched.date():
+            most_recent_day_searched = result.published
 
-        if result.published.date() > most_recent_date.date():
-            most_recent_date = result.published
+        # Add paper to Weaviate
+        paper_class = get_or_create_class(config["weaviate"].get("papers_class_name"))
 
-        # Get embedding for the paper
-        paper_text = f"{paper['title']}\n{paper['abstract']}"
-        embedding = (
-            openai_client.embeddings.create(
-                input=paper_text, model=arxiv_config.get("embedding_model")
+        existing_papers = (
+            get_weaviate_client()
+            .collections.get(config["weaviate"].get("papers_class_name"))
+            .query.fetch_object_by_id(paper["paper_id"])
+        )
+
+        # Extract the results
+        existing_papers_data = existing_papers["data"]["Get"][
+            config["weaviate"].get("papers_class_name")
+        ]
+
+        if not existing_papers_data:
+            paper_class.data_object().create({**paper})
+        else:
+            print(
+                f"Paper with ID {paper['paper_id']} already exists. Skipping insertion."
             )
-            .data[0]
-            .embedding
-        )
-
-        # Add paper to Chroma
-        chroma_collection.add(
-            ids=[paper["id"]], embeddings=[embedding], metadatas=[paper]
-        )
 
     if papers:
         with open(
@@ -123,7 +117,7 @@ def search_papers(config: configparser.ConfigParser) -> None:
 
         # Update the checkpoint file with the most recent date
         with open(checkpoint_file, "w") as f:
-            f.write(most_recent_date.strftime("%Y-%m-%d"))
+            f.write(most_recent_day_searched.strftime("%Y-%m-%d"))
 
     print(f"Found {len(papers)} papers:")
     for paper in papers:

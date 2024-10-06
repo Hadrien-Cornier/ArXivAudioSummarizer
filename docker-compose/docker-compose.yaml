@@ -1,0 +1,22 @@
+services:
+  weaviate:
+    command:
+    - --host
+    - 0.0.0.0
+    - --port
+    - '8079'
+    - --scheme
+    - http
+    image: cr.weaviate.io/semitechnologies/weaviate:latest
+    ports:
+    - 8079:8079
+    - 50051:50051
+    restart: on-failure:0
+    environment:
+      OPENAI_APIKEY: ${OPENAI_APIKEY}
+      QUERY_DEFAULTS_LIMIT: 25
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED: 'true'
+      PERSISTENCE_DATA_PATH: ${PERSISTENCE_DATA_PATH}
+      DEFAULT_VECTORIZER_MODULE: 'text2vec-openai'
+      ENABLE_MODULES: 'text2vec-openai,generative-openai'
+      CLUSTER_HOSTNAME: 'arxiv-audio-summarizer'

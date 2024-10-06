@@ -12,8 +12,20 @@ This repository contains a comprehensive pipeline that automates the process of 
 
 This automated workflow allows researchers, students, and enthusiasts to stay up-to-date with the latest scientific literature in their field of interest, all while providing the convenience of audio consumption.
 
+The project utilizes Weaviate as a vector database for efficient storage and retrieval of paper information and summaries.
 
 ## Running the Pipeline
+
+Before executing the pipeline, you need to set up Weaviate:
+
+1. **Set up Weaviate**:
+   - Navigate to the `docker-compose` directory.
+   - Rename the `.env-template` file to `.env`.
+   - Open the `.env` file and replace `<REPLACE_ME_WITH_YOUR_OPENAI_APIKEY>` with your actual OpenAI API key.
+   - Run Weaviate locally using Docker Compose:
+     ```
+     docker-compose up -d
+     ```
 
 To execute the entire workflow as defined in the pipeline configuration:
 

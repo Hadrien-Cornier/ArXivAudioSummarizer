@@ -3,48 +3,14 @@ import os
 import requests
 from configparser import ConfigParser
 from datetime import datetime
-from typing import Any, DefaultDict, List, Dict
-from collections import defaultdict
+from typing import List
 
 import numpy as np
-import json
 
 from openai import OpenAI
-from chromadb import Client
-from chromadb.config import Settings
 
 from utils.retry import retry_with_exponential_backoff
-
-
-def load_embedding_cache(cache_file: str) -> Dict[str, Any]:
-    if os.path.exists(cache_file):
-        with open(cache_file, "r") as f:
-            return json.load(f)
-    return {}
-
-
-def save_embedding_cache(cache: Dict[str, Any], cache_file: str) -> None:
-    with open(cache_file, "w") as f:
-        json.dump(cache, f)
-
-
-@retry_with_exponential_backoff
-def get_embedding(
-    text: str,
-    client: OpenAI,
-    model: str = "text-embedding-ada-002",
-    cache: Dict[str, Any] = None,
-) -> List[float]:
-    if cache is not None and text in cache:
-        return cache[text]
-
-    response = client.embeddings.create(input=text, model=model)
-    embedding = response.data[0].embedding
-
-    if cache is not None:
-        cache[text] = embedding
-
-    return embedding
+from utils.weaviate_client import get_weaviate_client, get_or_create_class
 
 
 @retry_with_exponential_backoff
@@ -59,27 +25,17 @@ def compute_relevance_score(
         api_key=open(config.get("openai", "api_key_location")).read().strip()
     )
 
-    # Load embedding caches
-    include_cache_file = os.path.join("data", "include_embedding_cache.json")
-    exclude_cache_file = os.path.join("data", "exclude_embedding_cache.json")
-    include_cache = load_embedding_cache(include_cache_file)
-    exclude_cache = load_embedding_cache(exclude_cache_file)
-
     # Combine title and abstract
     paper_text = f"{title}\n{abstract}"
 
     # Get embeddings for paper, include terms, and exclude terms
-    paper_embedding = get_embedding(paper_text, client)
+    paper_embedding = get_embedding_or_cache(paper_text, client)
     include_embeddings = [
-        get_embedding(term, client, cache=include_cache) for term in include_terms
+        get_embedding_or_cache(term, client) for term in include_terms
     ]
     exclude_embeddings = [
-        get_embedding(term, client, cache=exclude_cache) for term in exclude_terms
+        get_embedding_or_cache(term, client) for term in exclude_terms
     ]
-
-    # Save updated caches
-    save_embedding_cache(include_cache, include_cache_file)
-    save_embedding_cache(exclude_cache, exclude_cache_file)
 
     # Calculate similarities
     include_similarities = [
@@ -96,56 +52,58 @@ def compute_relevance_score(
 
 
 def select_top_papers(config: ConfigParser) -> None:
-    chroma_client = Client(
-        Settings(persist_directory=config.get("arxiv_search", "chroma_persist_dir"))
-    )
-    chroma_collection = chroma_client.get_collection(name="papers")
+    weaviate_config = config["weaviate"]
+    weaviate_client = get_weaviate_client()
+    # Print the number of documents currently indexed in Weaviate
+    paper_count = (
+        weaviate_client.query.aggregate(weaviate_config.get("papers_class_name"))
+        .with_meta_count()
+        .do()
+    )["data"]["Aggregate"][weaviate_config.get("papers_class_name")][0]["meta"]["count"]
 
-    # Print the number of documents currently indexed in Chroma
-    paper_count = chroma_collection.count()
-    print(f"Number of documents currently indexed in Chroma: {paper_count}")
+    print(f"Number of documents currently indexed in Weaviate: {paper_count}")
 
     if paper_count == 0:
         print("Cannot select from an empty collection. Skipping paper selection.")
         return
 
     queries = config.get("select_papers", "queries").split(",")
-    results: DefaultDict[str, List[Any]] = defaultdict(list)
+    results = []
     openai_client = OpenAI(
         api_key=open(config.get("openai", "api_key_location")).read().strip()
     )
 
     for query_name in queries:
-        query_name = query_name.strip()  # Remove any leading/trailing whitespace
+        query_name = query_name.strip()
         query_terms = config.get("select_papers", query_name).split(",")
+        query_text = " ".join(query_terms)
 
-        # Get embeddings for query terms
-        query_embeddings = [
-            get_embedding(term.strip(), openai_client) for term in query_terms
-        ]
+        # Get embedding for the query
+        query_embedding = get_embedding_or_cache(query_text, openai_client)
 
-        # Query Chroma with vector search
-        vector_results = chroma_collection.query(
-            query_embeddings=query_embeddings,
-            n_results=config.getint("select_papers", "number_of_papers_to_summarize"),
+        # Perform hybrid search
+        hybrid_results = (
+            weaviate_client.query.get(
+                weaviate_config.get("papers_class_name"),
+                ["id", "title", "arxiv_url", "pdf_url", "published_date", "abstract"],
+            )
+            .with_hybrid(
+                query=query_text,
+                alpha=0.5,  # Adjust this value to balance between vector and keyword search
+                vector=query_embedding,
+            )
+            .with_limit(config.getint("select_papers", "number_of_papers_to_summarize"))
+            .do()
         )
 
-        # Query Chroma with BM25 search
-        bm25_results = chroma_collection.query(
-            query_texts=[term.strip() for term in query_terms],
-            n_results=config.getint("select_papers", "number_of_papers_to_summarize"),
+        results.extend(
+            hybrid_results["data"]["Get"][weaviate_config.get("papers_class_name")]
         )
 
-        # Merge the results
-        for key in vector_results.keys():
-            results[key].append(vector_results[key])
-            results[key].append(bm25_results[key])
-
-    print(results)
-    # Sort results by combined BM25 and vector score
-    top_papers = sorted(query_results, key=lambda x: x["score"], reverse=True)[
-        : config.getint("select_papers", "number_of_papers_to_summarize")
-    ]
+    # Sort results by score (if available in the response)
+    top_papers = sorted(
+        results, key=lambda x: x.get("_additional", {}).get("score", 0), reverse=True
+    )
 
     output_dir = config.get("select_papers", "output_dir")
     os.makedirs(output_dir, exist_ok=True)

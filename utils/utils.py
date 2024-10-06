@@ -4,6 +4,8 @@ import configparser
 from typing import List, Dict, Any, Tuple
 import PyPDF2
 
+# from marker import Marker
+
 
 # Initialize configuration
 def resolve_config() -> configparser.ConfigParser:
@@ -126,3 +128,14 @@ def compute_relevance_score(title: str, abstract: str, include_terms: List[str])
         )
         for term in include_terms
     )
+
+
+# def extract_text_with_marker(pdf_path: str) -> str:
+#     """Extract text from a PDF file using Marker"""
+#     try:
+#         marker = Marker()
+#         result = marker.convert_file(pdf_path)
+#         return result.markdown
+#     except Exception as e:
+#         print(f"Error extracting text with Marker from {pdf_path}: {e}")
+#         return ""

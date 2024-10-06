@@ -1,7 +1,7 @@
 import os
 from typing import List, Dict, Optional
 from openai import OpenAI
-from utils.utils import read_lines_from_file, get_link, open_file, extract_text_from_pdf
+from utils.utils import read_lines_from_file, get_link, extract_text_from_pdf
 from time import sleep
 from configparser import ConfigParser
 import time
@@ -106,7 +106,13 @@ def generate_summary(paper: str, config: ConfigParser) -> str:
     all_messages.append(
         {
             "role": "user",
-            "content": "Synthesize the above information into a concise summary of the paper's key contributions and significance.",
+            "content": (
+                "Synthesize the above information into a concise summary of the paper's key contributions and significance. "
+                "Additionally, consider the practical implications of this research for a job search and recommendation system. "
+                "How could the findings or methods be applied to improve job matching, enhance candidate profiling, or optimize "
+                "search algorithms in the context of employment platforms? Provide specific examples of potential "
+                "applications or improvements."
+            ),
         }
     )
     return chatbot(all_messages, config)
