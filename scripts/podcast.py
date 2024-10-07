@@ -77,3 +77,7 @@ def cleanup_segment_files(segment_files: List[Path]) -> None:
     """Remove temporary audio segment files."""
     for segment_file in segment_files:
         os.remove(segment_file)
+
+
+def run(config: configparser.ConfigParser) -> None:
+    generate_podcast(config=config)

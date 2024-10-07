@@ -5,14 +5,7 @@ import csv
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 from utils.retry import retry_with_exponential_backoff
-from openai import OpenAI
-from utils.weaviate_client import get_or_create_class, get_weaviate_client
-from weaviate.classes.query import (
-    Filter,
-    GeoCoordinate,
-    MetadataQuery,
-    QueryReference,
-)  # Import classes as needed
+from utils.weaviate_client import get_or_create_class
 from weaviate.util import generate_uuid5
 from utils.utils import resolve_config
 from weaviate import connect_to_local
@@ -137,3 +130,7 @@ def search_papers(config: configparser.ConfigParser) -> None:
     print(f"Found {len(papers)} papers:")
     for paper in papers:
         print(f"- {paper['title']}")
+
+
+def run(config: configparser.ConfigParser) -> None:
+    search_papers(config=config)

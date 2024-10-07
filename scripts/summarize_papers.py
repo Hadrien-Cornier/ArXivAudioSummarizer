@@ -1,3 +1,4 @@
+import configparser
 import os
 from typing import List, Dict, Optional
 from openai import OpenAI
@@ -158,3 +159,7 @@ def print_progress_bar(current: int, total: int, bar_length: int = 20) -> None:
     filled_length: int = int(bar_length * progress)
     bar: str = "=" * filled_length + "-" * (bar_length - filled_length)
     print(f"\rProgress: [{bar}] {progress:.0%}", end="")
+
+
+def run(config: configparser.ConfigParser) -> None:
+    summarize_papers(config)

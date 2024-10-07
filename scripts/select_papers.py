@@ -1,3 +1,4 @@
+import configparser
 import csv
 import os
 import requests
@@ -141,3 +142,7 @@ def select_top_papers(config: ConfigParser) -> None:
             print(f"Downloaded {filename}.pdf")
 
     print(f"Selected top {len(top_papers)} papers.")
+
+
+def run(config: configparser.ConfigParser) -> None:
+    select_top_papers(config)

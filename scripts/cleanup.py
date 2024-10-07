@@ -1,4 +1,5 @@
 from configparser import ConfigParser
+import configparser
 import os
 import shutil
 import glob
@@ -82,3 +83,7 @@ def cleanup_and_send_to_obsidian(config: ConfigParser):
         ],
         files_to_preserve,
     )
+
+
+def run(config: configparser.ConfigParser) -> None:
+    cleanup_and_send_to_obsidian(config)

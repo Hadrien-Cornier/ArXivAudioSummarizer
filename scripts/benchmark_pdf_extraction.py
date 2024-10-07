@@ -1,3 +1,4 @@
+import configparser
 import os
 import time
 from typing import Dict
@@ -66,6 +67,10 @@ def main():
             f"Marker Time: {data['marker_time']:.2f}s, Length: {data['marker_length']}"
         )
         print("--------------------")
+
+
+def run(config: configparser.ConfigParser) -> None:
+    main()  # Assuming the main() function is the entry point for this script
 
 
 if __name__ == "__main__":

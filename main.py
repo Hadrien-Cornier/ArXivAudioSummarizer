@@ -1,13 +1,24 @@
 import sys
-from scripts import (
-    arxiv_search,
-    select_papers,
-    summarize_papers,
-    podcast,
-    cleanup,
-)  # , benchmark_pdf_extraction
 from utils.utils import resolve_config
-import os
+import importlib
+import pkgutil
+import scripts  # Ensure 'scripts' is a package with an __init__.py
+
+
+def load_pipeline_steps():
+    step_functions = {}
+    for loader, module_name, is_pkg in pkgutil.iter_modules(scripts.__path__):
+        try:
+            module = importlib.import_module(f"scripts.{module_name}")
+            if hasattr(module, "run"):
+                step_functions[module_name] = module.run
+            else:
+                print(
+                    f"Warning: Module '{module_name}' does not have a 'run' function."
+                )
+        except Exception as e:
+            print(f"Error loading module '{module_name}': {e}")
+    return step_functions
 
 
 def main():
@@ -16,31 +27,12 @@ def main():
         step.strip() for step in config.get("pipeline", "steps").split(",")
     ]
 
-    step_functions = {
-        "arxiv_search": arxiv_search.search_papers,
-        "select_papers": select_papers.select_top_papers,
-        "summarize_papers": summarize_papers.summarize_papers,
-        "podcast": podcast.generate_podcast,
-        "cleanup": cleanup.cleanup_and_send_to_obsidian,
-        # "benchmark": benchmark_pdf_extraction.main,  # Add this line
-    }
+    step_functions = load_pipeline_steps()
 
     for step in pipeline_steps:
         print(f"Executing step: {step}")
         if step in step_functions:
             step_functions[step](config=config)
-
-            # Check if papers were found after arxiv_search
-            if step == "arxiv_search":
-                papers_found_csv = os.path.join(
-                    config.get("arxiv_search", "output_dir"), "papers_found.csv"
-                )
-                if (
-                    not os.path.exists(papers_found_csv)
-                    or os.path.getsize(papers_found_csv) == 0
-                ):
-                    print("No new papers found. Stopping pipeline.")
-                    break
         else:
             print(f"Warning: Unknown pipeline step '{step}'")
 
