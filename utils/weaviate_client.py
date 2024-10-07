@@ -14,13 +14,13 @@ def get_weaviate_client():
     return client
 
 
-def get_or_create_class(class_name: str):
+def get_or_create_class(client: weaviate.Client, class_name: str):
     if not class_name in client.collections.list_all().keys():
         if class_name == weaviate_config.get("papers_class_name"):
             collection = client.collections.create(
                 name=class_name,
                 properties=[
-                    Property(name="paper_id", data_type=DataType.TEXT),
+                    Property(name="arxiv_id", data_type=DataType.TEXT),
                     Property(name="title", data_type=DataType.TEXT),
                     Property(name="arxiv_url", data_type=DataType.TEXT),
                     Property(name="pdf_url", data_type=DataType.TEXT),

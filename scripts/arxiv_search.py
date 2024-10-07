@@ -2,11 +2,20 @@ import configparser
 import arxiv
 import os
 import csv
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
 from utils.retry import retry_with_exponential_backoff
 from openai import OpenAI
 from utils.weaviate_client import get_or_create_class, get_weaviate_client
+from weaviate.classes.query import (
+    Filter,
+    GeoCoordinate,
+    MetadataQuery,
+    QueryReference,
+)  # Import classes as needed
+from weaviate.util import generate_uuid5
+from utils.utils import resolve_config
+from weaviate import connect_to_local
 
 
 @retry_with_exponential_backoff
@@ -60,14 +69,15 @@ def search_papers(config: configparser.ConfigParser) -> None:
         print(f"Failed to fetch results from arXiv: {e}")
         return
 
+    papers = []
     for result in results:
         if start_date <= result.published.date() <= end_date:
             paper = {
-                "paper_id": result.get_short_id(),
+                "arxiv_id": result.get_short_id(),
                 "title": result.title,
                 "arxiv_url": result.entry_id,
                 "pdf_url": result.pdf_url,
-                "published_date": str(result.published.date()),
+                "published_date": result.published.astimezone(timezone.utc).isoformat(),
                 "abstract": result.summary,
                 "full_text": "",
             }
@@ -81,26 +91,31 @@ def search_papers(config: configparser.ConfigParser) -> None:
         if result.published.date() > most_recent_day_searched.date():
             most_recent_day_searched = result.published
 
-        # Add paper to Weaviate
-        paper_class = get_or_create_class(config["weaviate"].get("papers_class_name"))
+    # Add papers to Weaviate in batch
+    config = resolve_config()
+    weaviate_config = config["weaviate"]
 
-        existing_papers = (
-            get_weaviate_client()
-            .collections.get(config["weaviate"].get("papers_class_name"))
-            .query.fetch_object_by_id(paper["paper_id"])
-        )
+    client = connect_to_local(
+        port=weaviate_config["port"], grpc_port=weaviate_config["grpc_port"]
+    )
+    paper_class = get_or_create_class(
+        client, config["weaviate"].get("papers_class_name")
+    )
+    with paper_class.batch.dynamic() as batch:
+        for paper in papers:
+            obj_uuid = generate_uuid5(paper["arxiv_id"])
+            if not paper_class.data.exists(obj_uuid):
+                batch.add_object(properties=paper, uuid=obj_uuid)
+            else:
+                print(
+                    f"Paper with ID {paper['arxiv_id']} already exists. Skipping insertion."
+                )
 
-        # Extract the results
-        existing_papers_data = existing_papers["data"]["Get"][
-            config["weaviate"].get("papers_class_name")
-        ]
-
-        if not existing_papers_data:
-            paper_class.data_object().create({**paper})
-        else:
-            print(
-                f"Paper with ID {paper['paper_id']} already exists. Skipping insertion."
-            )
+    print("failed_objects")
+    print(paper_class.batch.failed_objects)
+    print("total_count")
+    print(paper_class.aggregate.over_all(total_count=True))
+    client.close()
 
     if papers:
         with open(
