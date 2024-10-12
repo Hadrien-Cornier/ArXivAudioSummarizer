@@ -70,7 +70,7 @@ def main():
 
 
 def run(config: configparser.ConfigParser) -> None:
-    main()  # Assuming the main() function is the entry point for this script
+    main()
 
 
 if __name__ == "__main__":

@@ -11,7 +11,8 @@ import numpy as np
 from openai import OpenAI
 
 from utils.retry import retry_with_exponential_backoff
-from utils.weaviate_client import get_weaviate_client, get_or_create_class
+from utils.weaviate_client import get_or_create_class, get_weaviate_client
+from weaviate.classes.query import MetadataQuery
 
 
 @retry_with_exponential_backoff
@@ -55,12 +56,11 @@ def compute_relevance_score(
 def select_top_papers(config: ConfigParser) -> None:
     weaviate_config = config["weaviate"]
     weaviate_client = get_weaviate_client()
+    paper_class = get_or_create_class(
+        weaviate_client, weaviate_config.get("papers_class_name")
+    )
     # Print the number of documents currently indexed in Weaviate
-    paper_count = (
-        weaviate_client.query.aggregate(weaviate_config.get("papers_class_name"))
-        .with_meta_count()
-        .do()
-    )["data"]["Aggregate"][weaviate_config.get("papers_class_name")][0]["meta"]["count"]
+    paper_count = paper_class.aggregate.over_all(total_count=True)
 
     print(f"Number of documents currently indexed in Weaviate: {paper_count}")
 
@@ -70,41 +70,21 @@ def select_top_papers(config: ConfigParser) -> None:
 
     queries = config.get("select_papers", "queries").split(",")
     results = []
-    openai_client = OpenAI(
-        api_key=open(config.get("openai", "api_key_location")).read().strip()
-    )
 
     for query_name in queries:
         query_name = query_name.strip()
         query_terms = config.get("select_papers", query_name).split(",")
         query_text = " ".join(query_terms)
 
-        # Get embedding for the query
-        query_embedding = get_embedding_or_cache(query_text, openai_client)
-
         # Perform hybrid search
-        hybrid_results = (
-            weaviate_client.query.get(
-                weaviate_config.get("papers_class_name"),
-                ["id", "title", "arxiv_url", "pdf_url", "published_date", "abstract"],
-            )
-            .with_hybrid(
-                query=query_text,
-                alpha=0.5,  # Adjust this value to balance between vector and keyword search
-                vector=query_embedding,
-            )
-            .with_limit(config.getint("select_papers", "number_of_papers_to_summarize"))
-            .do()
+        hybrid_results = paper_class.query.hybrid(
+            query=query_text,
+            limit=config.getint("select_papers", "number_of_papers_to_summarize"),
         )
 
-        results.extend(
-            hybrid_results["data"]["Get"][weaviate_config.get("papers_class_name")]
-        )
-
-    # Sort results by score (if available in the response)
-    top_papers = sorted(
-        results, key=lambda x: x.get("_additional", {}).get("score", 0), reverse=True
-    )
+        for o in hybrid_results.objects:
+            print(o.properties)
+            results.append(o.properties)
 
     output_dir = config.get("select_papers", "output_dir")
     os.makedirs(output_dir, exist_ok=True)
@@ -120,28 +100,38 @@ def select_top_papers(config: ConfigParser) -> None:
             [
                 "ID",
                 "Title",
-                "ArXiv URL",
-                "PDF URL",
-                "Published Date",
+                "ArXivURL",
+                "PublishedDate",
                 "Abstract",
-                "Score",
                 "Filename",
             ]
         )
 
-        for paper in top_papers:
-            published_date = datetime.strptime(
-                paper["published_date"], "%Y-%m-%d"
-            ).date()
+        for paper in results:
+            # paper is a dict with the following keys:
+            # ['arxiv_url', 'full_text', 'published_date', 'pdf_url', 'arxiv_id', 'title', 'abstract']
+            published_date = paper["published_date"].strftime("%Y-%m-%d")
+
+            # potentially rewrite this title to look nicer
             filename = f"{published_date}-{paper['title'].replace(' ', '_').replace(':', '').replace(',', '')[:50]}"
 
             with open(os.path.join(output_dir, f"{filename}.pdf"), "wb") as f:
                 f.write(requests.get(paper["pdf_url"]).content)
 
-            writer.writerow(list(paper.values()) + [filename])
+            writer.writerow(
+                [
+                    paper["arxiv_id"],
+                    paper["title"],
+                    paper["arxiv_url"],
+                    paper["published_date"],
+                    paper["abstract"],
+                    filename,
+                ]
+            )
             print(f"Downloaded {filename}.pdf")
 
-    print(f"Selected top {len(top_papers)} papers.")
+    print(f"Selected top {len(results)} papers.")
+    weaviate_client.close()
 
 
 def run(config: configparser.ConfigParser) -> None:
