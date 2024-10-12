@@ -3,7 +3,6 @@ import csv
 import os
 import requests
 from configparser import ConfigParser
-from datetime import datetime
 from typing import List
 
 import numpy as np
@@ -12,7 +11,6 @@ from openai import OpenAI
 
 from utils.retry import retry_with_exponential_backoff
 from utils.weaviate_client import get_or_create_class, get_weaviate_client
-from weaviate.classes.query import MetadataQuery
 
 
 @retry_with_exponential_backoff
