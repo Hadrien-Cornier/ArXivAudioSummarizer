@@ -28,6 +28,7 @@ def main():
     ]
 
     step_functions = load_pipeline_steps()
+    print("Pipeline steps Loaded:", pipeline_steps)
 
     for step in pipeline_steps:
         print(f"Executing step: {step}")

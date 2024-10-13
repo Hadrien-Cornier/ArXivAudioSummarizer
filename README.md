@@ -52,3 +52,5 @@ To execute the entire workflow as defined in the pipeline configuration:
 ## Acknowledgements
 
 This repository is heavily inspired by [Tunador's arvix-workflow](https://github.com/evintunador).
+
+This project uses code from [AI-Scientist](https://github.com/SakanaAI/AI-Scientist) by [Lu, Chris and Lu, Cong and Lange, Robert Tjarko and Foerster, Jakob and Clune, Jeff and Ha, David]. The project is licensed under the Apache License 2.0.

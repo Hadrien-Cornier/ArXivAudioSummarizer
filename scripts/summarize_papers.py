@@ -3,9 +3,9 @@ import os
 from typing import List, Dict, Optional
 from openai import OpenAI
 from utils.utils import read_lines_from_file, get_link, extract_text_from_pdf
-from time import sleep
 from configparser import ConfigParser
 import time
+import backoff
 
 
 def summarize_papers(config: ConfigParser) -> None:
@@ -34,6 +34,7 @@ def summarize_papers(config: ConfigParser) -> None:
             continue
 
         paper: Optional[str] = extract_text_from_pdf(f"{input_folder}/{pdf_file}")
+        print("Extracted text from PDF")
         if paper:
             summaries += (
                 f"\n\n\n\n# {base_filename}\n{get_link(base_filename, csv_path)}"
@@ -42,6 +43,8 @@ def summarize_papers(config: ConfigParser) -> None:
 
         with open(filename, "w", encoding="utf-8") as summary_file:
             summary_file.write(summaries)
+
+        print("Wrote summary to file")
 
         if config.getboolean("Obsidian", "send_to_obsidian", fallback=False):
             try:
@@ -57,6 +60,7 @@ def summarize_papers(config: ConfigParser) -> None:
         outfile.write(summaries)
 
 
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
 def chatbot(
     conversation: List[Dict[str, str]],
     config: ConfigParser,
@@ -66,23 +70,24 @@ def chatbot(
     client: OpenAI = OpenAI(
         api_key=open(config.get("openai", "api_key_location")).read().strip()
     )
-    for _ in range(3):
-        try:
-            stream = client.chat.completions.create(
-                model=model,
-                messages=conversation,
-                temperature=temperature,
-                max_tokens=1500,
-                n=1,
-                stop=None,
-                stream=True,
-            )
-            return "".join(
-                chunk.choices[0].delta.content or "" for chunk in stream
-            ).strip()
-        except Exception as e:
-            sleep(1)
-    return f"Error: {str(e)}"
+
+    try:
+        response = client.chat.completions.create(
+            model=model,
+            messages=conversation,
+            temperature=temperature,
+            max_tokens=32768,
+            n=1,
+            stream=False,
+        )
+        result = "".join(
+            chunk.choices[0].delta.content or "" for chunk in response
+        ).strip()
+    except Exception as e:
+        result = f"Error: {str(e)}"
+    finally:
+        client.close()
+    return result
 
 
 def determine_tags(abstract: str, config: ConfigParser) -> List[str]:
@@ -116,6 +121,7 @@ def generate_summary(paper: str, config: ConfigParser) -> str:
             ),
         }
     )
+    print("All messages : %s" % all_messages)
     return chatbot(all_messages, config)
 
 

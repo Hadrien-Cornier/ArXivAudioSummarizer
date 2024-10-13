@@ -1,56 +1,13 @@
 import configparser
 import csv
 import os
+import backoff
 import requests
 from configparser import ConfigParser
-from typing import List
-
-import numpy as np
-
-from openai import OpenAI
-
-from utils.retry import retry_with_exponential_backoff
 from utils.weaviate_client import get_or_create_class, get_weaviate_client
 
 
-@retry_with_exponential_backoff
-def compute_relevance_score(
-    title: str,
-    abstract: str,
-    include_terms: List[str],
-    exclude_terms: List[str],
-    config: ConfigParser,
-) -> float:
-    client = OpenAI(
-        api_key=open(config.get("openai", "api_key_location")).read().strip()
-    )
-
-    # Combine title and abstract
-    paper_text = f"{title}\n{abstract}"
-
-    # Get embeddings for paper, include terms, and exclude terms
-    paper_embedding = get_embedding_or_cache(paper_text, client)
-    include_embeddings = [
-        get_embedding_or_cache(term, client) for term in include_terms
-    ]
-    exclude_embeddings = [
-        get_embedding_or_cache(term, client) for term in exclude_terms
-    ]
-
-    # Calculate similarities
-    include_similarities = [
-        np.dot(paper_embedding, inc_emb) for inc_emb in include_embeddings
-    ]
-    exclude_similarities = [
-        np.dot(paper_embedding, exc_emb) for exc_emb in exclude_embeddings
-    ]
-
-    # Compute score
-    score = sum(include_similarities) - sum(exclude_similarities)
-
-    return score
-
-
+@backoff.on_exception(backoff.expo, (requests.exceptions.RequestException,))
 def select_top_papers(config: ConfigParser) -> None:
     weaviate_config = config["weaviate"]
     weaviate_client = get_weaviate_client()

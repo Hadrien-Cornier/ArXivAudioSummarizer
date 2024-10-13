@@ -1,8 +1,12 @@
 import os
 import csv
 import configparser
-from typing import List, Dict, Any, Tuple
+from typing import List, Dict, Any, Tuple, Optional
 import PyPDF2
+import subprocess
+import backoff
+import openai
+import json
 
 # from marker import Marker
 
@@ -130,12 +134,264 @@ def compute_relevance_score(title: str, abstract: str, include_terms: List[str])
     )
 
 
-# def extract_text_with_marker(pdf_path: str) -> str:
-#     """Extract text from a PDF file using Marker"""
-#     try:
-#         marker = Marker()
-#         result = marker.convert_file(pdf_path)
-#         return result.markdown
-#     except Exception as e:
-#         print(f"Error extracting text with Marker from {pdf_path}: {e}")
-#         return ""
+def convert_pdfs_to_markdown_with_marker(input_folder: str, output_folder: str) -> None:
+    """Convert PDFs in the specified folder to markdown using the marker CLI."""
+    # Ensure the output folder exists
+    os.makedirs(output_folder, exist_ok=True)
+
+    # Command to run the marker CLI
+    command = [
+        "marker",
+        input_folder,
+        output_folder,
+        "--workers",
+        "4",  # Adjust the number of workers as needed
+        "--max",
+        "10",  # Adjust the maximum number of PDFs to convert
+    ]
+
+    try:
+        # Call the marker CLI
+        subprocess.run(command, check=True)
+        print(
+            f"Successfully converted PDFs in {input_folder} to markdown in {output_folder}."
+        )
+    except subprocess.CalledProcessError as e:
+        print(f"An error occurred while converting PDFs: {e}")
+
+
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
+def get_batch_responses_from_llm(
+    msg: str,
+    client: Any,
+    model: str,
+    system_message: str,
+    print_debug: bool = False,
+    msg_history: Optional[List[Dict[str, str]]] = None,
+    temperature: float = 0.75,
+    n_responses: int = 1,
+) -> Tuple[List[str], List[List[Dict[str, str]]]]:
+    if msg_history is None:
+        msg_history = []
+
+    if model in [
+        "gpt-4o-2024-05-13",
+        "gpt-4o-mini-2024-07-18",
+        "gpt-4o-2024-08-06",
+    ]:
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=n_responses,
+            stop=None,
+            seed=0,
+        )
+        content = [r.message.content for r in response.choices]
+        new_msg_history = [
+            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+        ]
+    elif model == "deepseek-coder-v2-0724":
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model="deepseek-coder",
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=n_responses,
+            stop=None,
+        )
+        content = [r.message.content for r in response.choices]
+        new_msg_history = [
+            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+        ]
+    elif model == "llama-3-1-405b-instruct":
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model="meta-llama/llama-3.1-405b-instruct",
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=n_responses,
+            stop=None,
+        )
+        content = [r.message.content for r in response.choices]
+        new_msg_history = [
+            new_msg_history + [{"role": "assistant", "content": c}] for c in content
+        ]
+    elif "claude" in model:
+        content, new_msg_history = [], []
+        for _ in range(n_responses):
+            c, hist = get_response_from_llm(
+                msg,
+                client,
+                model,
+                system_message,
+                print_debug=False,
+                msg_history=None,
+                temperature=temperature,
+            )
+            content.append(c)
+            new_msg_history.append(hist)
+    else:
+        raise ValueError(f"Model {model} not supported.")
+
+    if print_debug:
+        print()
+        print("*" * 20 + " LLM START " + "*" * 20)
+        for j, msg in enumerate(new_msg_history[0]):
+            print(f'{j}, {msg["role"]}: {msg["content"]}')
+        print(content)
+        print("*" * 21 + " LLM END " + "*" * 21)
+        print()
+
+    return content, new_msg_history
+
+
+@backoff.on_exception(backoff.expo, (openai.RateLimitError, openai.APITimeoutError))
+def get_response_from_llm(
+    msg: str,
+    client: Any,
+    model: str,
+    system_message: str,
+    print_debug: bool = False,
+    msg_history: Optional[List[Dict[str, str]]] = None,
+    temperature: float = 0.75,
+) -> Tuple[str, List[Dict[str, str]]]:
+    if msg_history is None:
+        msg_history = []
+
+    if "claude" in model:
+        new_msg_history = msg_history + [
+            {
+                "role": "user",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": msg,
+                    }
+                ],
+            }
+        ]
+        response = client.messages.create(
+            model=model,
+            max_tokens=3000,
+            temperature=temperature,
+            system=system_message,
+            messages=new_msg_history,
+        )
+        content = response.content[0].text
+        new_msg_history = new_msg_history + [
+            {
+                "role": "assistant",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": content,
+                    }
+                ],
+            }
+        ]
+    elif model in [
+        "gpt-4o-2024-05-13",
+        "gpt-4o-mini-2024-07-18",
+        "gpt-4o-2024-08-06",
+    ]:
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=1,
+            stop=None,
+            seed=0,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    elif model == "deepseek-coder-v2-0724":
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model="deepseek-coder",
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=1,
+            stop=None,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    elif model in ["meta-llama/llama-3.1-405b-instruct", "llama-3-1-405b-instruct"]:
+        new_msg_history = msg_history + [{"role": "user", "content": msg}]
+        response = client.chat.completions.create(
+            model="meta-llama/llama-3.1-405b-instruct",
+            messages=[
+                {"role": "system", "content": system_message},
+                *new_msg_history,
+            ],
+            temperature=temperature,
+            max_tokens=3000,
+            n=1,
+            stop=None,
+        )
+        content = response.choices[0].message.content
+        new_msg_history = new_msg_history + [{"role": "assistant", "content": content}]
+    else:
+        raise ValueError(f"Model {model} not supported.")
+
+    if print_debug:
+        print()
+        print("*" * 20 + " LLM START " + "*" * 20)
+        for j, msg in enumerate(new_msg_history):
+            print(f'{j}, {msg["role"]}: {msg["content"]}')
+        print(content)
+        print("*" * 21 + " LLM END " + "*" * 21)
+        print()
+
+    return content, new_msg_history
+
+
+def extract_json_between_markers(llm_output: str) -> Optional[Dict[str, Any]]:
+    json_start_marker = "```json"
+    json_end_marker = "```"
+
+    start_index = llm_output.find(json_start_marker)
+    if start_index != -1:
+        start_index += len(json_start_marker)
+        end_index = llm_output.find(json_end_marker, start_index)
+    else:
+        return None
+
+    if end_index == -1:
+        return None
+
+    json_string = llm_output[start_index:end_index].strip()
+    try:
+        parsed_json = json.loads(json_string)
+        return parsed_json
+    except json.JSONDecodeError:
+        return None
+
+
+def get_review_model_settings() -> Tuple[str, float]:
+    config = resolve_config()
+    model = config.get("review", "model", fallback="gpt-4o-2024-08-06")
+    temperature = config.getfloat("review", "temperature", fallback=0.75)
+    return model, temperature

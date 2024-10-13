@@ -4,20 +4,21 @@ import os
 import csv
 from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any
-from utils.retry import retry_with_exponential_backoff
 from utils.weaviate_client import get_or_create_class
 from weaviate.util import generate_uuid5
 from utils.utils import resolve_config
 from weaviate import connect_to_local
+import backoff
 
 
-@retry_with_exponential_backoff
+@backoff.on_exception(backoff.expo, (arxiv.ArxivError,))
 def fetch_arxiv_results(
     search: arxiv.Search, client: arxiv.Client
 ) -> List[arxiv.Result]:
     return list(client.results(search))
 
 
+@backoff.on_exception(backoff.expo, (arxiv.ArxivError,))
 def search_papers(config: configparser.ConfigParser) -> None:
     arxiv_config: Dict[str, Any] = config["arxiv_search"]
     weaviate_config: Dict[str, Any] = config["weaviate"]
