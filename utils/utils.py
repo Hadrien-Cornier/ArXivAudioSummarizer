@@ -175,7 +175,7 @@ def get_batch_responses_from_llm(
         msg_history = []
 
     if model in [
-        "gpt-4o-2024-05-13",
+        "gpt-4o",
         "gpt-4o-mini-2024-07-18",
         "gpt-4o-2024-08-06",
     ]:
@@ -304,7 +304,7 @@ def get_response_from_llm(
             }
         ]
     elif model in [
-        "gpt-4o-2024-05-13",
+        "gpt-4o",
         "gpt-4o-mini-2024-07-18",
         "gpt-4o-2024-08-06",
     ]:
