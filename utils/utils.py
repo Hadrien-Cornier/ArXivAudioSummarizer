@@ -392,6 +392,6 @@ def extract_json_between_markers(llm_output: str) -> Optional[Dict[str, Any]]:
 
 def get_review_model_settings() -> Tuple[str, float]:
     config = resolve_config()
-    model = config.get("review", "model", fallback="gpt-4o-2024-08-06")
+    model = config.get("review", "model", fallback="gpt-4o")
     temperature = config.getfloat("review", "temperature", fallback=0.75)
     return model, temperature
