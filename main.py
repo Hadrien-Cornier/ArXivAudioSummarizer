@@ -2,7 +2,7 @@ import sys
 from utils.utils import resolve_config
 import importlib
 import pkgutil
-import scripts  # Ensure 'scripts' is a package with an __init__.py
+import scripts
 
 
 def load_pipeline_steps():

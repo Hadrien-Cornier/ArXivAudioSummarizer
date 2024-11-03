@@ -1,9 +1,9 @@
 data
 !**/.gitkeep
 !**/most_recent_day_searched.txt
-venv/
+.venv/
 config/key_openai.txt
 **/__pycache__
 marker/
 docker-compose/.env
-.vscode
+.vscode/
