@@ -1,6 +1,7 @@
 import configparser
 import os
 from typing import List, Dict, Optional
+import openai
 from openai import OpenAI
 from utils.utils import read_lines_from_file, get_link, extract_text_from_pdf
 from configparser import ConfigParser

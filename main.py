@@ -12,6 +12,7 @@ def load_pipeline_steps():
             module = importlib.import_module(f"scripts.{module_name}")
             if hasattr(module, "run"):
                 step_functions[module_name] = module.run
+                print(f"Loaded module: {module_name}")
             else:
                 print(
                     f"Warning: Module '{module_name}' does not have a 'run' function."
